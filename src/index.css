@@ -4,25 +4,25 @@
 
 @layer base {
   :root {
-    --bg-primary: #0a0e14;
-    --bg-secondary: #0f1520;
-    --bg-tertiary: #151c2c;
-    --bg-card: #111827;
-    --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-default: rgba(255, 255, 255, 0.1);
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --accent-amber: #f59e0b;
-    --accent-amber-dim: rgba(245, 158, 11, 0.15);
-    --accent-teal: #14b8a6;
-    --accent-teal-dim: rgba(20, 184, 166, 0.15);
-    --accent-red: #ef4444;
-    --accent-red-dim: rgba(239, 68, 68, 0.15);
-    --accent-blue: #38bdf8;
-    --accent-blue-dim: rgba(56, 189, 248, 0.15);
-    --accent-green: #22c55e;
-    --accent-green-dim: rgba(34, 197, 94, 0.15);
+    --bg-primary: #101922;
+    --bg-secondary: #142230;
+    --bg-tertiary: #1b2a3b;
+    --bg-card: #1a2434;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-default: rgba(255, 255, 255, 0.12);
+    --text-primary: #edf3fb;
+    --text-secondary: #a9b8c9;
+    --text-muted: #7a8ca5;
+    --accent-amber: #f6b73c;
+    --accent-amber-dim: rgba(246, 183, 60, 0.18);
+    --accent-teal: #1ec7b2;
+    --accent-teal-dim: rgba(30, 199, 178, 0.18);
+    --accent-red: #f26a6a;
+    --accent-red-dim: rgba(242, 106, 106, 0.18);
+    --accent-blue: #5bbdfb;
+    --accent-blue-dim: rgba(91, 189, 251, 0.18);
+    --accent-green: #3ad77a;
+    --accent-green-dim: rgba(58, 215, 122, 0.18);
   }
 
   * {
@@ -69,11 +69,11 @@
     padding: 34px;
     position: relative;
     overflow: hidden;
-    background-color: #101923;
+    background-color: #152333;
     background-image:
-      linear-gradient(110deg, rgba(16, 25, 35, 0.98) 10%, rgba(16, 25, 35, 0.86) 52%, rgba(16, 25, 35, 0.44)),
-      radial-gradient(circle at 82% 42%, rgba(20, 184, 166, 0.16), transparent 26%),
-      linear-gradient(135deg, rgba(245, 158, 11, 0.08), transparent 42%);
+      linear-gradient(110deg, rgba(21, 35, 51, 0.98) 10%, rgba(21, 35, 51, 0.88) 52%, rgba(21, 35, 51, 0.5)),
+      radial-gradient(circle at 82% 42%, rgba(30, 199, 178, 0.18), transparent 26%),
+      linear-gradient(135deg, rgba(246, 183, 60, 0.1), transparent 42%);
   }
 
   .overview-hero__orbit {
