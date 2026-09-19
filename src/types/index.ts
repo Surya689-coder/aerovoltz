@@ -1,10 +1,45 @@
-export type UnitId = 'MEDDROP' | 'ROVER_R1' | 'RECON';
+export type UnitId = 'MEDDROP' | 'ROVER_R1' | 'RECON' | 'SCOUT_S1';
 
 export type UnitType = 'drone' | 'rover';
 
 export type MissionStatus = 'planning' | 'active' | 'paused' | 'completed' | 'aborted';
 
 export type SurvivorStatus = 'reported' | 'verified' | 'aided' | 'rescued';
+
+export type SurvivorDetectionState = 'DETECTED' | 'VERIFYING' | 'VERIFIED' | 'REJECTED';
+
+export type RoverState = 'STANDBY' | 'VERIFYING' | 'VERIFIED';
+
+export type SupplyMissionStatus =
+  | 'READY'
+  | 'DISPATCHED'
+  | 'EN_ROUTE'
+  | 'AT_TARGET'
+  | 'DELIVERING'
+  | 'RETURNING'
+  | 'COMPLETED'
+  | 'ABORTED';
+
+export type SupplyUavState =
+  | 'STANDBY'
+  | 'ASSIGNED'
+  | 'READY'
+  | 'DISPATCHED'
+  | 'EN_ROUTE'
+  | 'AT_TARGET'
+  | 'DELIVERING'
+  | 'RETURNING'
+  | 'COMPLETED'
+  | 'ABORTED';
+
+export type MissionMode = 'AUTONOMOUS' | 'MANUAL';
+
+export interface MissionStateModel {
+  mode: MissionMode;
+  survivorDetection: SurvivorDetectionState;
+  rover: RoverState;
+  supplyUav: SupplyUavState;
+}
 
 export type SurvivorSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -21,14 +56,59 @@ export type AlertType =
 
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'success';
 
-export type EventType = 'telemetry' | 'mission' | 'survivor' | 'alert' | 'system';
+export type EventType = 'telemetry' | 'mission' | 'survivor' | 'alert' | 'system' | 'verification';
+
+export type VerificationResultStatus = 'VERIFIED' | 'REJECTED';
 
 export type UserRole = 'commander' | 'observer';
+
+export interface ScoutSurvivorDetection {
+  detectionId: string;
+  sourceUnit: UnitId;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  confidence: number;
+  detectedAt: string;
+  status: SurvivorDetectionState;
+  verifiedBy?: UnitId;
+  verifiedAt?: string;
+  verificationStatus?: VerificationResultStatus;
+}
+
+export interface RoverVerificationMission {
+  missionId: string;
+  targetDetectionId: string;
+  assignedUnit: 'ROVER_R1';
+  targetLatitude: number;
+  targetLongitude: number;
+  targetAltitude: number;
+  missionMode: MissionMode;
+  missionStatus: RoverState | 'VERIFYING';
+  createdAt: string;
+}
+
+export interface SupplyMission {
+  missionId: string;
+  survivorId: string;
+  detectionId: string;
+  assignedUnit: 'MEDDROP';
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  payload: string;
+  missionMode: 'AUTONOMOUS';
+  missionStatus: SupplyMissionStatus;
+  createdAt: string;
+}
 
 export interface Waypoint {
   x: number;
   y: number;
   label: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
 }
 
 export interface GeofencePoint {
@@ -75,6 +155,8 @@ export interface Mission {
   waypoints: Waypoint[];
   geofence: GeofencePoint[];
   status: MissionStatus;
+  mode?: MissionMode;
+  state?: MissionStateModel;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -93,6 +175,12 @@ export interface Survivor {
   severity: SurvivorSeverity;
   medicine_dispatched: boolean;
   status: SurvivorStatus;
+  detectionState?: SurvivorDetectionState;
+  roverState?: RoverState;
+  supplyUavState?: SupplyUavState;
+  verificationStatus?: VerificationResultStatus;
+  verifiedBy?: UnitId;
+  verifiedAt?: string;
   detected_at: string;
   created_by: string;
   created_at: string;
@@ -153,3 +241,4 @@ export interface User {
   email: string;
   role: UserRole;
 }
+

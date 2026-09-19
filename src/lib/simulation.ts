@@ -3,13 +3,13 @@ import type {
   UnitTelemetry,
   Waypoint,
   Alert,
-  AlertType,
-  AlertSeverity,
   Survivor,
   SurvivorSeverity,
   SurvivorStatus,
   Mission,
   OccupancyMap,
+  RoverVerificationMission,
+  SupplyMission,
 } from '@/types';
 import {
   UNIT_CONFIG,
@@ -21,12 +21,21 @@ import {
   lerp,
   normalizeAngle,
   angleBetween,
-  batteryColor,
+  latLngToMap,
 } from './constants';
 
 type AlertCallback = (alert: Omit<Alert, 'id' | 'acknowledged' | 'created_at'>) => void;
 type SurvivorCallback = (survivor: Omit<Survivor, 'id' | 'created_by' | 'created_at'>) => void;
 type EventCallback = (event: { unit_id: UnitId | null; type: string; message: string; data?: Record<string, unknown> }) => void;
+type VerificationResultCallback = (result: {
+  detectionId: string;
+  verificationStatus: 'VERIFIED' | 'REJECTED';
+  verifiedBy: UnitId;
+  verifiedAt: string;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+}) => void;
 
 interface SimUnit {
   telemetry: UnitTelemetry;
@@ -79,18 +88,20 @@ const SURVIVOR_LOCATIONS: { x: number; y: number; severity: SurvivorSeverity; co
 ];
 
 let survivorCounter = 0;
-let detectedSurvivors = new Set<number>();
 
 export class SimulationEngine {
   private units: Map<UnitId, SimUnit> = new Map();
   private alertCb: AlertCallback | null = null;
   private survivorCb: SurvivorCallback | null = null;
   private eventCb: EventCallback | null = null;
+  private verificationResultCb: VerificationResultCallback | null = null;
   private running = false;
   private intervalId: number | null = null;
   private activeMission: Mission | null = null;
   private startTime = 0;
   private survivorQueue: { x: number; y: number; severity: SurvivorSeverity; confidence: number; delay: number }[] = [];
+  private roverVerificationTarget: { detectionId: string; latitude: number; longitude: number; altitude: number } | null = null;
+  private supplyMission: SupplyMission | null = null;
 
   constructor() {
     this.initUnits();
@@ -156,10 +167,13 @@ export class SimulationEngine {
     this.eventCb = cb;
   }
 
+  onVerificationResult(cb: VerificationResultCallback) {
+    this.verificationResultCb = cb;
+  }
+
   start(mission: Mission) {
     this.activeMission = mission;
     this.startTime = Date.now();
-    this.detectedSurvivors = new Set();
 
     // Queue survivors with staggered detection delays
     this.survivorQueue = SURVIVOR_LOCATIONS.map((s, i) => ({
@@ -172,6 +186,7 @@ export class SimulationEngine {
       if (!unit) continue;
       unit.waypoints = mission.waypoints || [];
       unit.waypointIndex = 0;
+      unit.telemetry.currentWaypoint = 0;
       unit.missionActive = mission.unit_id === id;
       unit.scanning = false;
       unit.returning = false;
@@ -185,18 +200,17 @@ export class SimulationEngine {
         unit.telemetry.mode = 'AUTO';
         unit.telemetry.armed = true;
         unit.telemetry.status = 'En route';
-      } else if (mission.unit_id !== id) {
-        // Non-assigned units do a patrol scan
-        unit.waypoints = this.generatePatrolWaypoints(id);
-        unit.missionActive = true;
-        unit.scanning = true;
-        if (unit.waypoints.length > 0) {
-          unit.targetX = unit.waypoints[0].x;
-          unit.targetY = unit.waypoints[0].y;
-        }
-        unit.telemetry.mode = 'PATROL';
-        unit.telemetry.armed = true;
-        unit.telemetry.status = 'Scanning';
+      } else {
+        // Non-assigned units stay visible at base in standby.
+        unit.waypoints = [];
+        unit.missionActive = false;
+        unit.targetX = unit.baseX;
+        unit.targetY = unit.baseY;
+        unit.telemetry.mode = 'STANDBY';
+        unit.telemetry.armed = false;
+        unit.telemetry.status = 'Idle';
+        unit.telemetry.speed = 0;
+        if (unit.telemetry.unitType === 'drone') unit.telemetry.altitude = 0;
       }
     }
 
@@ -326,8 +340,59 @@ export class SimulationEngine {
     this.updateSLAM();
   }
 
+  private updateSupplyMissionState(id: UnitId, unit: SimUnit) {
+    if (id !== 'MEDDROP' || !this.supplyMission) return;
+
+    const targetPoint = latLngToMap(this.supplyMission.latitude, this.supplyMission.longitude);
+    const distanceToTarget = distance(unit.telemetry.x, unit.telemetry.y, targetPoint.x, targetPoint.y);
+
+    if (this.supplyMission.missionStatus === 'READY') {
+      this.supplyMission.missionStatus = 'DISPATCHED';
+      this.emitEvent('MEDDROP', 'mission', `Supply mission ${this.supplyMission.missionId} dispatched to ${this.supplyMission.survivorId}`);
+    }
+
+    if (this.supplyMission.missionStatus === 'DISPATCHED' && distanceToTarget < 180) {
+      this.supplyMission.missionStatus = 'EN_ROUTE';
+    }
+
+    if (this.supplyMission.missionStatus === 'EN_ROUTE' && distanceToTarget < 30) {
+      this.supplyMission.missionStatus = 'AT_TARGET';
+      this.emitEvent('MEDDROP', 'mission', `Supply UAV at target for ${this.supplyMission.survivorId}`);
+    }
+
+    if (this.supplyMission.missionStatus === 'AT_TARGET' && !unit.delivering) {
+      unit.delivering = true;
+      unit.telemetry.status = 'Delivering';
+      unit.telemetry.mode = 'DELIVERY';
+      this.supplyMission.missionStatus = 'DELIVERING';
+      this.emitEvent('MEDDROP', 'mission', `Supply mission ${this.supplyMission.missionId} delivering payload`);
+    }
+
+    if (unit.delivering && this.supplyMission.missionStatus === 'DELIVERING') {
+      this.supplyMission.missionStatus = 'DELIVERING';
+    }
+
+    if (unit.returning && this.supplyMission.missionStatus !== 'COMPLETED') {
+      this.supplyMission.missionStatus = 'RETURNING';
+    }
+
+    if (unit.returning && distance(unit.telemetry.x, unit.telemetry.y, unit.baseX, unit.baseY) < 12) {
+      this.supplyMission.missionStatus = 'COMPLETED';
+      this.emitEvent('MEDDROP', 'mission', `Supply mission ${this.supplyMission.missionId} complete`);
+      this.emitAlert({
+        mission_id: this.activeMission?.id ?? null,
+        unit_id: 'MEDDROP',
+        type: 'payload_delivered',
+        severity: 'success',
+        message: `Supply UAV mission complete for ${this.supplyMission.survivorId}`,
+      });
+      this.supplyMission = null;
+    }
+  }
+
   private updateUnit(unit: SimUnit, id: UnitId, elapsed: number, now: number) {
     const tm = unit.telemetry;
+    this.updateSupplyMissionState(id, unit);
 
     // Movement
     const dx = unit.targetX - tm.x;
@@ -365,6 +430,7 @@ export class SimulationEngine {
         });
 
         unit.waypointIndex++;
+        tm.currentWaypoint = unit.waypointIndex;
 
         if (unit.waypointIndex < unit.waypoints.length) {
           const next = unit.waypoints[unit.waypointIndex];
@@ -387,8 +453,16 @@ export class SimulationEngine {
           // Mission complete for this unit
           tm.status = 'Idle';
           tm.mode = 'STANDBY';
+          tm.speed = 0;
           unit.missionActive = false;
           this.emitEvent(id, 'mission', `${tm.name} mission waypoints complete`);
+          this.emitAlert({
+            mission_id: this.activeMission?.id ?? null,
+            unit_id: id,
+            type: 'mission_completed',
+            severity: 'success',
+            message: `${tm.name} mission complete`,
+          });
         }
       }
     }
@@ -415,8 +489,33 @@ export class SimulationEngine {
       }
     }
 
+    if (id === 'ROVER_R1' && this.roverVerificationTarget) {
+      const target = this.roverVerificationTarget;
+      if (distance(unit.telemetry.x, unit.telemetry.y, latLngToMap(target.latitude, target.longitude).x, latLngToMap(target.latitude, target.longitude).y) < 18) {
+        const verificationStatus = Math.random() < 0.75 ? 'VERIFIED' : 'REJECTED';
+        const verifiedAt = new Date().toISOString();
+        this.verificationResultCb?.({
+          detectionId: target.detectionId,
+          verificationStatus,
+          verifiedBy: 'ROVER_R1',
+          verifiedAt,
+          latitude: target.latitude,
+          longitude: target.longitude,
+          altitude: target.altitude,
+        });
+        this.emitEvent('ROVER_R1', 'verification', verificationStatus === 'VERIFIED' ? 'Survivor confirmed by Rover R1' : 'No survivor confirmed by Rover R1');
+        this.roverVerificationTarget = null;
+        unit.missionActive = false;
+        unit.returning = true;
+        unit.targetX = unit.baseX;
+        unit.targetY = unit.baseY;
+        tm.status = 'Returning';
+        tm.mode = 'RTL';
+      }
+    }
+
     // Battery drain
-    const drainRate = id === 'ROVER_R1' ? 0.04 : 0.06;
+    const drainRate = unit.missionActive || unit.returning ? (id === 'ROVER_R1' ? 0.04 : 0.06) : 0;
     const movingMultiplier = tm.speed > 1 ? 1.5 : 0.5;
     tm.battery = Math.max(0, tm.battery - drainRate * movingMultiplier);
 
@@ -467,7 +566,7 @@ export class SimulationEngine {
     }
 
     // Altitude for drones
-    if (unit.telemetry.unitType === 'drone' && !unit.returning) {
+    if (unit.telemetry.unitType === 'drone' && unit.missionActive && !unit.returning) {
       tm.altitude = Math.max(0, 40 + Math.sin(elapsed / 5000) * 10 + Math.random() * 3);
     } else if (unit.telemetry.unitType === 'drone' && unit.returning) {
       tm.altitude = Math.max(0, tm.altitude - 0.5);
@@ -494,8 +593,11 @@ export class SimulationEngine {
     survivorCounter++;
     const survivorId = `S-${String(survivorCounter).padStart(3, '0')}`;
 
-    // Find nearest unit
-    let nearestUnit: UnitId = 'RECON';
+    // Prefer the Scout UAV as the source unit for the detection flow.
+    const scoutSourceUnit: UnitId = 'SCOUT_S1';
+
+    // Find nearest unit for fallback when the Scout UAV is unavailable.
+    let nearestUnit: UnitId = scoutSourceUnit;
     let nearestDist = Infinity;
     for (const id of UNIT_IDS) {
       const unit = this.units.get(id);
@@ -507,15 +609,17 @@ export class SimulationEngine {
       }
     }
 
+    const detectionSourceUnit = this.units.has('SCOUT_S1') ? scoutSourceUnit : nearestUnit;
+
     this.emitAlert({
       mission_id: this.activeMission?.id ?? null,
-      unit_id: nearestUnit,
+      unit_id: detectionSourceUnit,
       type: 'survivor_found',
       severity: severity === 'critical' ? 'critical' : 'success',
-      message: `Survivor ${survivorId} detected by ${UNIT_CONFIG[nearestUnit].name}`,
+      message: `Survivor ${survivorId} detected by ${UNIT_CONFIG[detectionSourceUnit].name}`,
     });
 
-    this.emitEvent(nearestUnit, 'survivor', `Survivor ${survivorId} detected — ${severity} severity, ${(confidence * 100).toFixed(0)}% confidence`);
+    this.emitEvent(detectionSourceUnit, 'survivor', `Survivor ${survivorId} detected — ${severity} severity, ${(confidence * 100).toFixed(0)}% confidence`);
 
     if (this.survivorCb) {
       this.survivorCb({
@@ -523,7 +627,7 @@ export class SimulationEngine {
         survivor_id: survivorId,
         lat: x,
         lng: y,
-        detected_by: nearestUnit,
+        detected_by: detectionSourceUnit,
         confidence,
         severity,
         medicine_dispatched: false,
@@ -578,6 +682,89 @@ export class SimulationEngine {
     return { grid: rover.slamGrid, width: SLAM_W, height: SLAM_H, cellSize: SLAM_CELL };
   }
 
+  assignRoverVerificationMission(mission: RoverVerificationMission) {
+    const rover = this.units.get('ROVER_R1');
+    if (!rover) return;
+
+    const target = latLngToMap(mission.targetLatitude, mission.targetLongitude);
+    rover.targetX = target.x;
+    rover.targetY = target.y;
+    rover.missionActive = true;
+    rover.returning = false;
+    rover.telemetry.mode = 'AUTO';
+    rover.telemetry.status = 'En route';
+    rover.telemetry.armed = true;
+    rover.telemetry.currentWaypoint = 0;
+    rover.waypointIndex = 0;
+    rover.waypoints = [{
+      x: target.x,
+      y: target.y,
+      label: `VERIFY-${mission.targetDetectionId}`,
+      latitude: mission.targetLatitude,
+      longitude: mission.targetLongitude,
+      altitude: mission.targetAltitude,
+    }];
+    this.roverVerificationTarget = {
+      detectionId: mission.targetDetectionId,
+      latitude: mission.targetLatitude,
+      longitude: mission.targetLongitude,
+      altitude: mission.targetAltitude,
+    };
+
+    this.emitEvent('ROVER_R1', 'mission', `Rover verification mission created for detection ${mission.targetDetectionId}`);
+    this.emitAlert({
+      mission_id: this.activeMission?.id ?? null,
+      unit_id: 'ROVER_R1',
+      type: 'mission_started',
+      severity: 'info',
+      message: `Rover verification mission assigned to ${mission.targetDetectionId}`,
+    });
+  }
+
+  assignSupplyMission(mission: SupplyMission) {
+    const meddrop = this.units.get('MEDDROP');
+    if (!meddrop) return;
+
+    const target = latLngToMap(mission.latitude, mission.longitude);
+    meddrop.targetX = target.x;
+    meddrop.targetY = target.y;
+    meddrop.missionActive = true;
+    meddrop.returning = false;
+    meddrop.delivering = false;
+    meddrop.deliverProgress = 0;
+    meddrop.telemetry.mode = 'AUTO';
+    meddrop.telemetry.status = 'En route';
+    meddrop.telemetry.armed = true;
+    meddrop.telemetry.currentWaypoint = 0;
+    meddrop.waypointIndex = 0;
+    meddrop.waypoints = [{
+      x: target.x,
+      y: target.y,
+      label: `SUPPLY-${mission.survivorId}`,
+      latitude: mission.latitude,
+      longitude: mission.longitude,
+      altitude: mission.altitude,
+    }];
+
+    this.supplyMission = {
+      ...mission,
+      missionStatus: 'READY',
+    };
+
+    this.emitEvent('MEDDROP', 'mission', `Autonomous supply mission created for ${mission.survivorId} and marked READY`);
+    this.emitAlert({
+      mission_id: this.activeMission?.id ?? null,
+      unit_id: 'MEDDROP',
+      type: 'mission_started',
+      severity: 'success',
+      message: `Supply UAV mission ready for ${mission.survivorId}`,
+    });
+  }
+
+  getSupplyMission(): SupplyMission | null {
+    return this.supplyMission;
+  }
+
   private emitAlert(alert: Omit<Alert, 'id' | 'acknowledged' | 'created_at'>) {
     if (this.alertCb) this.alertCb(alert);
   }
@@ -592,6 +779,26 @@ export class SimulationEngine {
 
   getUnit(id: UnitId): UnitTelemetry | null {
     return this.units.get(id)?.telemetry ?? null;
+  }
+
+  setUnitPosition(unitId: UnitId, latitude: number, longitude: number, altitude?: number) {
+    const unit = this.units.get(unitId);
+    if (!unit) return;
+
+    const point = latLngToMap(latitude, longitude);
+    unit.telemetry.x = Math.max(0, Math.min(MAP_WIDTH, point.x));
+    unit.telemetry.y = Math.max(0, Math.min(MAP_HEIGHT, point.y));
+    unit.telemetry.gpsLat = Number(latitude).toFixed(5);
+    unit.telemetry.gpsLng = Number(longitude).toFixed(5);
+
+    if (typeof altitude === 'number' && Number.isFinite(altitude)) {
+      unit.telemetry.altitude = Math.max(0, altitude);
+    }
+
+    unit.targetX = unit.telemetry.x;
+    unit.targetY = unit.telemetry.y;
+    unit.telemetry.mode = 'MANUAL';
+    unit.telemetry.status = 'Idle';
   }
 
   isRunning(): boolean {

@@ -1,4 +1,4 @@
-import type { UnitTelemetry } from '@/types';
+import type { UnitId, UnitTelemetry } from '@/types';
 import {
   UNIT_CONFIG,
   STATUS_COLORS,
@@ -10,7 +10,7 @@ import { Plane, Cpu, Radio, Battery, Gauge, Navigation, Wifi, Activity } from 'l
 interface VehiclePanelProps {
   telemetry: UnitTelemetry[];
   selectedUnit: string;
-  onSelectUnit: (id: string) => void;
+  onSelectUnit: (id: UnitId) => void;
   missionActive: boolean;
 }
 

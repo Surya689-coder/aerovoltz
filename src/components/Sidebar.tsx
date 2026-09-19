@@ -1,7 +1,7 @@
-import { LayoutDashboard, Map, Crosshair, Users, FileText, Radar, LogOut } from 'lucide-react';
+import { LayoutDashboard, Map, Crosshair, Users, FileText, Radar, LogOut, BarChart3, Settings, Compass } from 'lucide-react';
 import type { UserRole } from '@/types';
 
-export type ViewId = 'operations' | 'vehicles' | 'planner' | 'survivors' | 'mapping' | 'logs';
+export type ViewId = 'overview' | 'operations' | 'vehicles' | 'planner' | 'survivors' | 'mapping' | 'analytics' | 'logs' | 'settings';
 
 interface SidebarProps {
   activeView: ViewId;
@@ -13,12 +13,15 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof LayoutDashboard; commanderOnly?: boolean }[] = [
+  { id: 'overview', label: 'Command Brief', icon: Compass },
   { id: 'operations', label: 'Live Operations', icon: LayoutDashboard },
   { id: 'vehicles', label: 'Vehicle Panel', icon: Crosshair },
   { id: 'planner', label: 'Mission Planner', icon: Map },
   { id: 'survivors', label: 'Survivor Registry', icon: Users },
   { id: 'mapping', label: 'SLAM Mapping', icon: Radar },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'logs', label: 'Mission Log', icon: FileText },
+  { id: 'settings', label: 'System Settings', icon: Settings },
 ];
 
 export function Sidebar({ activeView, onViewChange, role, onSignOut, missionActive, alertCount }: SidebarProps) {

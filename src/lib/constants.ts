@@ -2,8 +2,7 @@ import type {
   UnitId,
   UnitType,
   UnitStatus,
-  UnitTelemetry,
-  Waypoint,
+  GeofencePoint,
   AlertType,
   AlertSeverity,
   SurvivorSeverity,
@@ -41,9 +40,17 @@ export const UNIT_CONFIG: Record<
     startX: 250,
     startY: 530,
   },
+  SCOUT_S1: {
+    callsign: 'S1',
+    name: 'SCOUT UAV',
+    type: 'drone',
+    color: '#a78bfa',
+    startX: 310,
+    startY: 470,
+  },
 };
 
-export const UNIT_IDS: UnitId[] = ['MEDDROP', 'ROVER_R1', 'RECON'];
+export const UNIT_IDS: UnitId[] = ['MEDDROP', 'ROVER_R1', 'RECON', 'SCOUT_S1'];
 
 export const STATUS_COLORS: Record<UnitStatus, string> = {
   Idle: '#64748b',
@@ -114,6 +121,21 @@ export function gpsFormat(x: number, y: number): { lat: string; lng: string } {
   return { lat, lng };
 }
 
+export function mapToLatLng(x: number, y: number): { lat: number; lng: number } {
+  const lat = 28.6139 + (MAP_HEIGHT / 2 - y) * 0.00009;
+  const lng = 77.2090 + (x - MAP_WIDTH / 2) * 0.00011;
+  return { lat, lng };
+}
+
+export function latLngToMap(lat: number, lng: number): { x: number; y: number } {
+  const x = (lng - 77.2090) / 0.00011 + MAP_WIDTH / 2;
+  const y = MAP_HEIGHT / 2 - (lat - 28.6139) / 0.00009;
+  return {
+    x: Math.max(0, Math.min(MAP_WIDTH, x)),
+    y: Math.max(0, Math.min(MAP_HEIGHT, y)),
+  };
+}
+
 export function formatTime(ts: number | string): string {
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
   return d.toLocaleTimeString('en-US', {
@@ -151,12 +173,12 @@ export function generateWaypointLabel(index: number): string {
   return `WP-${String(index + 1).padStart(2, '0')}`;
 }
 
-export function defaultGeofence(): Waypoint[] {
+export function defaultGeofence(): GeofencePoint[] {
   return [
-    { x: 100, y: 100, label: 'GF-1' },
-    { x: 900, y: 100, label: 'GF-2' },
-    { x: 900, y: 600, label: 'GF-3' },
-    { x: 100, y: 600, label: 'GF-4' },
+    { x: 100, y: 100 },
+    { x: 900, y: 100 },
+    { x: 900, y: 600 },
+    { x: 100, y: 600 },
   ];
 }
 

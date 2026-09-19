@@ -1,5 +1,5 @@
 import type { Alert } from '@/types';
-import { ALERT_SEVERITY_CONFIG, ALERT_TYPE_LABELS, formatTime } from '@/lib/constants';
+import { ALERT_SEVERITY_CONFIG, formatTime } from '@/lib/constants';
 import { AlertTriangle, Bell, CheckCircle, Info, Radio, ShieldAlert, Zap } from 'lucide-react';
 
 interface AlertFeedProps {

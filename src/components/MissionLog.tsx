@@ -1,6 +1,6 @@
 import type { MissionEvent } from '@/types';
 import { formatTime } from '@/lib/constants';
-import { Activity, AlertTriangle, CheckCircle, Info, MapPin, Radio, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle, Info, MapPin } from 'lucide-react';
 
 interface MissionLogProps {
   events: MissionEvent[];
